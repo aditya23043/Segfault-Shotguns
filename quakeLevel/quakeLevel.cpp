@@ -60,8 +60,33 @@ int main(void) {
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
+
+    //wall texturing
     InitWindow(screenWidth, screenHeight, "Raylib FPS - Procedural Map + Minimap");
     DisableCursor();
+    Texture2D wallTex1 = LoadTexture("assets/textures/Brick_11-128x128.png");
+    Texture2D wallTex2 = LoadTexture("assets/textures/Brick_12-128x128.png");
+    Mesh cubeMesh = GenMeshCube(2.0f, 2.0f, 2.0f); // Size of cube
+
+    Material wallMat1 = LoadMaterialDefault();
+    wallMat1.maps[MATERIAL_MAP_ALBEDO].texture = wallTex1;
+
+    Material wallMat2 = LoadMaterialDefault();
+    wallMat2.maps[MATERIAL_MAP_ALBEDO].texture = wallTex2;
+
+    //floor texturing
+
+
+    Texture2D floorTex1 = LoadTexture("assets/textures/Tile_02-128x128.png");
+    Texture2D floorTex2 = LoadTexture("assets/textures/Tile_01-128x128.png");
+
+    Material floorMat1 = LoadMaterialDefault();
+    floorMat1.maps[MATERIAL_MAP_ALBEDO].texture = floorTex1;
+
+    Material floorMat2 = LoadMaterialDefault();
+    floorMat2.maps[MATERIAL_MAP_ALBEDO].texture = floorTex2;
+
+    Mesh floorMesh = GenMeshCube(2.0f, 0.1f, 2.0f); // Flat floor tile
 
     GenerateProceduralMap();
 
@@ -130,10 +155,26 @@ int main(void) {
             for (int x = 0; x < MAP_WIDTH; x++) {
                 Vector3 cubePos = Vector3{ x * 2.0f, 1.0f, z * 2.0f };
                 if (levelMap[z][x] == '#') {
-                    DrawCube(cubePos, 2.0f, 4.0f, 2.0f, DARKGRAY);
+                    // Alternate between two wall textures
+                    Material mat = ((x + z) % 2 == 0) ? wallMat1 : wallMat2;
+                    // Bottom wall block
+                    Matrix bottom = MatrixTranslate(cubePos.x, cubePos.y, cubePos.z);
+                    DrawMesh(cubeMesh, mat, bottom);
+
+                    // Top wall block (2.0 units higher)
+                    Matrix top = MatrixTranslate(cubePos.x, cubePos.y + 2.0f, cubePos.z);
+                    DrawMesh(cubeMesh, mat, top);
+
+
+
                 }
                 else {
-                    DrawCube(cubePos, 2.0f, 0.1f, 2.0f, LIGHTGRAY);
+                    if (levelMap[z][x] == '.') {
+                        Material mat = ((x + z) % 2 == 0) ? floorMat1 : floorMat2;
+                        Matrix floorMatrix = MatrixTranslate(cubePos.x, cubePos.y - 0.95f, cubePos.z);
+                        DrawMesh(floorMesh, mat, floorMatrix);
+                    }
+
                 }
             }
         }
@@ -156,6 +197,21 @@ int main(void) {
         DrawText("WASD to move, Mouse to look", 10, 10, 20, BLACK);
         EndDrawing();
     }
+
+    //unloading the assets
+    UnloadTexture(wallTex1);
+    UnloadTexture(wallTex2);
+    UnloadMaterial(wallMat1);
+    UnloadMaterial(wallMat2);
+    UnloadMesh(cubeMesh);
+
+    UnloadTexture(floorTex1);
+    UnloadTexture(floorTex2);
+    UnloadMaterial(floorMat1);
+    UnloadMaterial(floorMat2);
+    UnloadMesh(floorMesh);
+
+
 
     CloseWindow();
     return 0;
