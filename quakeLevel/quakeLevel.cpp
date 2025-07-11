@@ -3,31 +3,140 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 #define MAP_WIDTH  30
 #define MAP_HEIGHT 30
+#define ROOM_ROWS  3
+#define ROOM_COLS  3
+#define ROOM_W     8
+#define ROOM_H     8
 
 char levelMap[MAP_HEIGHT][MAP_WIDTH];
 
 float playerRadius = 0.4f;
 float playerHeight = 1.8f;
 
-void GenerateProceduralMap() {
-    srand(time(NULL));
+int currentRoomX = 0;
+int currentRoomZ = 0;
+
+float fadeAlpha = 0.0f;
+bool fading = false;
+bool fadeIn = true;
+float fadeSpeed = 0.05f;
+
+void ClearMap() {
     for (int z = 0; z < MAP_HEIGHT; z++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
-            // Walls on edges
-            if (x == 0 || z == 0 || x == MAP_WIDTH - 1 || z == MAP_HEIGHT - 1) {
-                levelMap[z][x] = '#';
-            }
-            else {
-                // Random wall or floor
-                levelMap[z][x] = (rand() % 100 < 20) ? '#' : '.';
+            levelMap[z][x] = '#';
+        }
+    }
+}
+
+void CarveRoom(int roomX, int roomZ) {
+    int offsetX = 1 + roomX * (ROOM_W + 1);
+    int offsetZ = 1 + roomZ * (ROOM_H + 1);
+
+    for (int z = 0; z < ROOM_H; z++) {
+        for (int x = 0; x < ROOM_W; x++) {
+            int mapX = offsetX + x;
+            int mapZ = offsetZ + z;
+            if (mapX < MAP_WIDTH - 1 && mapZ < MAP_HEIGHT - 1) {
+                levelMap[mapZ][mapX] = '.';
             }
         }
     }
-    // Make player start position open
-    levelMap[1][1] = '.';
+}
+
+void ConnectRooms(int x1, int z1, int x2, int z2) {
+    int cx1 = 1 + x1 * (ROOM_W + 1) + ROOM_W / 2;
+    int cz1 = 1 + z1 * (ROOM_H + 1) + ROOM_H / 2;
+    int cx2 = 1 + x2 * (ROOM_W + 1) + ROOM_W / 2;
+    int cz2 = 1 + z2 * (ROOM_H + 1) + ROOM_H / 2;
+
+    while (cx1 != cx2) {
+        levelMap[cz1][cx1] = '.';
+        cx1 += (cx1 < cx2) ? 1 : -1;
+    }
+    while (cz1 != cz2) {
+        levelMap[cz1][cx1] = '.';
+        cz1 += (cz1 < cz2) ? 1 : -1;
+    }
+}
+
+void GenerateRoomBasedMap() {
+    srand(time(NULL));
+    ClearMap();
+
+    bool roomPlaced[ROOM_ROWS][ROOM_COLS] = { 0 };
+
+    int startX = rand() % ROOM_COLS;
+    int startZ = rand() % ROOM_ROWS;
+    roomPlaced[startZ][startX] = true;
+    CarveRoom(startX, startZ);
+
+    currentRoomX = startX;
+    currentRoomZ = startZ;
+
+    int numRooms = 6 + rand() % 3;
+    int placed = 1;
+
+    while (placed < numRooms) {
+        int rx = rand() % ROOM_COLS;
+        int rz = rand() % ROOM_ROWS;
+
+        if (roomPlaced[rz][rx]) continue;
+
+        if ((rx > 0 && roomPlaced[rz][rx - 1]) ||
+            (rx < ROOM_COLS - 1 && roomPlaced[rz][rx + 1]) ||
+            (rz > 0 && roomPlaced[rz - 1][rx]) ||
+            (rz < ROOM_ROWS - 1 && roomPlaced[rz + 1][rx])) {
+
+            roomPlaced[rz][rx] = true;
+            CarveRoom(rx, rz);
+
+            int dx = 0, dz = 0;
+            do {
+                dx = (rand() % 3) - 1;
+                dz = (rand() % 3) - 1;
+            } while (abs(dx) + abs(dz) != 1 ||
+                rx + dx < 0 || rx + dx >= ROOM_COLS ||
+                rz + dz < 0 || rz + dz >= ROOM_ROWS ||
+                !roomPlaced[rz + dz][rx + dx]);
+
+            ConnectRooms(rx, rz, rx + dx, rz + dz);
+            placed++;
+        }
+    }
+}
+
+void HandleRoomTransition(Vector3 playerPos) {
+    int roomX = (int)(playerPos.x / (ROOM_W * 2 + 2));
+    int roomZ = (int)(playerPos.z / (ROOM_H * 2 + 2));
+
+    if ((roomX != currentRoomX || roomZ != currentRoomZ) && !fading) {
+        fading = true;
+        fadeIn = false;
+    }
+
+    if (fading) {
+        fadeAlpha += fadeIn ? -fadeSpeed : fadeSpeed;
+        if (fadeAlpha >= 1.0f) {
+            currentRoomX = roomX;
+            currentRoomZ = roomZ;
+            fadeIn = true;
+        }
+        else if (fadeAlpha <= 0.0f) {
+            fadeAlpha = 0.0f;
+            fading = false;
+        }
+    }
+}
+
+void DrawFadeOverlay() {
+    if (fadeAlpha > 0.0f) {
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, fadeAlpha));
+    }
 }
 
 bool IsPositionBlocked(Vector3 pos) {
@@ -55,6 +164,15 @@ bool IsPositionBlocked(Vector3 pos) {
     }
     return false;
 }
+int GetRoomCenterX(int roomX) {
+    return (1 + roomX * (ROOM_W + 1) + ROOM_W / 2) * 2;
+}
+
+int GetRoomCenterZ(int roomZ) {
+    return (1 + roomZ * (ROOM_H + 1) + ROOM_H / 2) * 2;
+}
+
+
 
 int main(void) {
     const int screenWidth = 1280;
@@ -77,7 +195,7 @@ int main(void) {
     //floor texturing
 
 
-    Texture2D floorTex1 = LoadTexture("assets/textures/Tile_02-128x128.png");
+    Texture2D floorTex1 = LoadTexture("assets/textures/Tile_01-128x128.png");
     Texture2D floorTex2 = LoadTexture("assets/textures/Tile_01-128x128.png");
 
     Material floorMat1 = LoadMaterialDefault();
@@ -88,10 +206,14 @@ int main(void) {
 
     Mesh floorMesh = GenMeshCube(2.0f, 0.1f, 2.0f); // Flat floor tile
 
-    GenerateProceduralMap();
+    GenerateRoomBasedMap();
 
     Camera3D camera = { 0 };
-    camera.position = Vector3{ 2.0f, 1.8f, 2.0f };
+    int playerX = GetRoomCenterX(currentRoomX);
+    int playerZ = GetRoomCenterZ(currentRoomZ);
+    camera.position = Vector3{ (float)playerX, 1.8f, (float)playerZ };
+    camera.target = Vector3Add(camera.position, Vector3{ 0.0f, 0.0f, -1.0f });
+
     camera.target = Vector3Add(camera.position, Vector3{ 0.0f, 0.0f, -1.0f });
     camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
     camera.fovy = 60.0f;
@@ -145,6 +267,7 @@ int main(void) {
         direction = Vector3Transform(direction, rotPitch);
 
         camera.target = Vector3Add(camera.position, direction);
+        HandleRoomTransition(camera.position);
 
         BeginDrawing();
         ClearBackground(SKYBLUE);
@@ -195,6 +318,8 @@ int main(void) {
         DrawRectangle(10 + px * 4, 500 + pz * 4, 4, 4, RED);
 
         DrawText("WASD to move, Mouse to look", 10, 10, 20, BLACK);
+
+        DrawFadeOverlay();
         EndDrawing();
     }
 
